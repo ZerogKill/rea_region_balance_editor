@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <index version="1" name="RBM">
   <category name="Mix">
-    <reapack name="region_balance_manager.lua" type="script" desc="Allows set balances in diffrent parts of song">
+    <reapack name="region_balance_manager.lua" type="script" desc="Region Balance Manager">
       <metadata>
         <description><![CDATA[{My First Version!
 ]]></description>
@@ -13,7 +13,7 @@
     </reapack>
   </category>
   <metadata>
-    <description><![CDATA[Region Balance Manager
+    <description><![CDATA[Allows set balances in diffrent parts of song 
 ]]></description>
   </metadata>
 </index>
