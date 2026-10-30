@@ -1,16 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <index version="1" name="Repository of scripts by ZerogKill">
-  <category name="Region Balance Manager">
-    <reapack name="Region Balance Manager" type="script" desc="Mixing with regions">
-      <metadata>
-        <description><![CDATA[
-          desc...
-        ]]></description>
-        <dependency name="ReaImGui" version="0.9.0"/>
-      </metadata>
-      <version name="1.0.0" author="ZerogKill" time="2026-10-30">
-        <source main="main">https://raw.githubusercontent.com/ZerogKill/rea_region_balance_editor/main/region_balance_manager.lua</source>
-      </version>
-    </reapack>
-  </category>
+  <reapack name="Region Balance Manager" type="script" desc="Region Balance Manager">
+    <metadata>
+      <description><![CDATA[
+        desc...
+      ]]></description>
+      <dependency name="ReaImGui" version="0.9.0"/>
+    </metadata>
+    <version name="1.0.0" author="ZerogKill" time="2026-10-30">
+      <source main="main">https://raw.githubusercontent.com/ZerogKill/rea_region_balance_editor/main/region_balance_manager.lua</source>
+    </version>
+  </reapack>
 </index>
