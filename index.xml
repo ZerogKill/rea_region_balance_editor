@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<index version="1" name="Reprository of scripts by ZerogKill">
+  <category name="Region Balance Manager">
+    <reapack name="Region Balance Manager" type="script" desc="Region Balance Manager">
+
+      <metadata>
+        <description><![CDATA[
+          desc...
+        ]]></description>
+        <dependency name="ReaImGui" version="0.9.0"/>
+      </metadata>
+
+      <version name="1.0.0" author="Ваше Имя" time="2026-10-30">
+        <source main="main">https://raw.githubusercontent.com/ZerogKill/rea_region_balance_manager/master/region_balance_manager.lua</source>
+      </version>
+
+    </reapack>
+  </category>
+</index>
