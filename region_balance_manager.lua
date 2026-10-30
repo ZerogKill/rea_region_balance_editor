@@ -1,38 +1,77 @@
 -- @description Region Balance Manager
--- @version 1.0
+-- @version 1.1
 -- @author Collaborative Build
 
 local reaper = reaper
 
--- Проверка наличия ReaImGui
 if not reaper.APIExists('ImGui_CreateContext') then
-  reaper.ShowMessageBox("Для работы скрипта требуется библиотека ReaImGui.\nПожалуйста, установите её через ReaPack.", " Ошибка", 0)
+  reaper.ShowMessageBox("Для работы скрипта требуется библиотека ReaImGui.\nПожалуйста, установите её через ReaPack.", "Ошибка", 0)
   return
 end
 
 -- ============================================================================
--- ГЛОБАЛЬНОЕ СОСТОЯНИЕ И ПЕРЕМЕННЫЕ
+-- 1. АВТОМАТИЧЕСКАЯ РЕГИСТРАЦИЯ В __startup.lua
 -- ============================================================================
+local function EnsureStartupRegistration()
+  local resource_path = reaper.GetResourcePath()
+  local startup_path = resource_path .. "/__startup.lua"
+  local _, current_script_path = reaper.get_action_context()
+  
+  if not current_script_path or current_script_path == "" then return end
+  local normalized_path = current_script_path:gsub("\\", "/")
+
+  local content = ""
+  local f = io.open(startup_path, "r")
+  if f then
+    content = f:read("*all")
+    f:close()
+  end
+
+  if not content:find(normalized_path) then
+    local f_out = io.open(startup_path, "a")
+    if f_out then
+      f_out:write("\n-- Region Balance Manager Auto-Start\n")
+      f_out:write('if reaper.file_exists("' .. normalized_path .. '") then dofile("' .. normalized_path .. '") end\n')
+      f_out:close()
+    end
+  end
+end
+
+EnsureStartupRegistration()
+
+-- ============================================================================
+-- ЕДИНСТВЕННЫЙ ЭКЗЕМПЛЯР И ПЕРЕМЕННЫЕ СОСТОЯНИЯ
+-- ============================================================================
+local ext_key = "REGION_BALANCE_MANAGER_RUNNING"
+if reaper.GetExtState("RegionBalanceManager", ext_key) == "true" then
+  -- Если скрипт уже запущен в фоне, просто активируем показ окна
+  reaper.SetExtState("RegionBalanceManager", "SHOW_WINDOW", "true", false)
+  return
+end
+reaper.SetExtState("RegionBalanceManager", ext_key, "true", false)
+reaper.SetExtState("RegionBalanceManager", "SHOW_WINDOW", "true", false)
+
 local ctx = reaper.ImGui_CreateContext('Region Balance Manager')
 local EXT_SECTION = "REGION_BALANCE_MANAGER"
 
-local regions = {}             -- Список регионов проекта
-local snapshots = {}           -- Снапшоты: snapshots[region_guid_or_id] = { [track_guid] = vol }
-local active_edit_region = nil -- Регион, который сейчас редактируется в режиме Loop
-local current_playing_region = nil -- Регион, под который сейчас подстроены фейдеры
+local regions = {}
+local snapshots = {}
+local active_edit_region = nil
+local current_playing_region = nil
 
--- Настройки переходов
 local transition_mode = 0      -- 0: Instant, 1: Gradual
-local transition_time_ms = 500 -- Время кроссфейда в мс
+local transition_time_ms = 500
 local is_fading = false
 local fade_start_time = 0
-local fade_tracks = {}         -- { track = tr, start_vol = v1, target_vol = v2 }
+local fade_tracks = {}
+
+local show_window = true
+local first_run_docked = false
 
 -- ============================================================================
--- ВСПАТАТЕЛЬНЫЕ ФУНКЦИИ И СЕРИАЛИЗАЦИЯ (EXTSTATE)
+-- ФУНКЦИИ РАБОТЫ С ДАННЫМИ И ПРОЕКТОМ
 -- ============================================================================
 
--- Сохранение снапшотов в проект (.rpp)
 local function SaveSnapshotsToProject()
   local str_parts = {}
   for r_id, tr_data in pairs(snapshots) do
@@ -47,7 +86,6 @@ local function SaveSnapshotsToProject()
   reaper.MarkProjectDirty(0)
 end
 
--- Загрузка снапшотов из проекта
 local function LoadSnapshotsFromProject()
   snapshots = {}
   local retval, val = reaper.GetProjExtState(0, EXT_SECTION, "SNAPSHOTS")
@@ -64,12 +102,10 @@ local function LoadSnapshotsFromProject()
   end
 end
 
--- Получение уникального ID для региона (по имени и позиции)
 local function GetRegionID(reg)
   return string.format("%s_%.3f_%.3f", reg.name, reg.pos, reg.r_end)
 end
 
--- Обновление списка регионов с таймлайна
 local function RefreshRegions()
   regions = {}
   local _, num_markers, num_regions = reaper.CountProjectMarkers(0)
@@ -93,7 +129,6 @@ end
 -- УПРАВЛЕНИЕ СНАПШОТАМИ И ФЕЙДЕРАМИ
 -- ============================================================================
 
--- Захват (автосохранение) фейдеров текущего проекта для региона
 local function CaptureSnapshotForRegion(reg)
   if not reg then return end
   local r_id = GetRegionID(reg)
@@ -108,7 +143,7 @@ local function CaptureSnapshotForRegion(reg)
   end
   SaveSnapshotsToProject()
 end
--- Применение баланса (моментально или через старт фада)
+
 local function ApplySnapshot(reg)
   if not reg then return end
   local r_id = GetRegionID(reg)
@@ -118,7 +153,6 @@ local function ApplySnapshot(reg)
   local track_count = reaper.CountTracks(0)
 
   if transition_mode == 0 then
-    -- Моментальный переход (Instant)
     for i = 0, track_count - 1 do
       local tr = reaper.GetTrack(0, i)
       local guid = reaper.GetTrackGUID(tr)
@@ -128,7 +162,6 @@ local function ApplySnapshot(reg)
     end
     is_fading = false
   else
-    -- Постепенный переход (Gradual / Crossfade)
     fade_tracks = {}
     for i = 0, track_count - 1 do
       local tr = reaper.GetTrack(0, i)
@@ -148,11 +181,10 @@ local function ApplySnapshot(reg)
   current_playing_region = r_id
 end
 
--- Обработка плавного кроссфейда в реальном времени
 local function ProcessFades()
   if not is_fading then return end
   local now = reaper.time_precise()
-  local elapsed = (now - fade_start_time) * 1000 -- в мс
+  local elapsed = (now - fade_start_time) * 1000
   local progress = elapsed / transition_time_ms
 
   if progress >= 1.0 then
@@ -160,7 +192,6 @@ local function ProcessFades()
     is_fading = false
   end
 
-  -- Линейная интерполяция
   for _, item in ipairs(fade_tracks) do
     if reaper.ValidatePtr(item.track, "MediaTrack*") then
       local new_vol = item.start_vol + (item.target_vol - item.start_vol) * progress
@@ -169,57 +200,43 @@ local function ProcessFades()
   end
 end
 
--- ============================================================================
--- ЛОГИКА АКТИВАЦИИ / ДЕАКТИВАЦИИ РЕГИОНА (LOOP & AUDITION)
--- ============================================================================
-
 local function ToggleRegionEditMode(reg)
   if active_edit_region and (active_edit_region.pos == reg.pos and active_edit_region.r_end == reg.r_end) then
-    -- ВТОРОЙ КЛИК: Деактивация и автосохранение
     CaptureSnapshotForRegion(active_edit_region)
-    
-    -- Снимаем Time Selection и выключаем Loop
     reaper.GetSet_LoopTimeRange(true, true, 0, 0, false)
-    reaper.GetSetRepeat(0) -- Выключить Loop
-    
+    reaper.GetSetRepeat(0)
     active_edit_region = nil
   else
-    -- ПЕРВЫЙ КЛИК (или переключение на другой регион)
     if active_edit_region then
-      -- Сохраняем предыдущий перед переключением
       CaptureSnapshotForRegion(active_edit_region)
     end
 
     active_edit_region = reg
-    
-    -- Ставим курсор в начало
     reaper.SetEditCurPos(reg.pos, true, true)
-    
-    -- Устанавливаем Time Selection по границам региона
     reaper.GetSet_LoopTimeRange(true, true, reg.pos, reg.r_end, false)
-    
-    -- Включаем режим Loop
     reaper.GetSetRepeat(1)
-    
-    -- Применяем существующий баланс для редактирования
     ApplySnapshot(reg)
   end
 end
 
 -- ============================================================================
--- ФОНОВЫЙ ЦИКЛ (PLAYBACK TRACKER)
+-- ГЛАВНЫЙ ЦИКЛ (ФОНОВЫЙ ДВИЖОК + UI)
 -- ============================================================================
 
 local function MainLoop()
+  -- 1. Проверка внешнего сигнала на открытие окна (если повторно запустили скрипт)
+  if reaper.GetExtState("RegionBalanceManager", "SHOW_WINDOW") == "true" then
+    show_window = true
+    reaper.SetExtState("RegionBalanceManager", "SHOW_WINDOW", "false", false)
+  end
+
+  -- 2. Фоновый движок воспроизведения работает всегда (даже при закрытом окне)
   ProcessFades()
 
-  -- Если активен режим ручного редактирования в петле — фоновую смену не проводим
   if not active_edit_region then
     local play_state = reaper.GetPlayState()
-    if (play_state & 1) == 1 then -- Песня проигрывается
+    if (play_state & 1) == 1 then
       local play_pos = reaper.GetPlayPosition()
-      
-      -- Ищем регион, в котором находится курсор
       local current_reg = nil
       for _, reg in ipairs(regions) do
         if play_pos >= reg.pos and play_pos < reg.r_end then
@@ -236,77 +253,89 @@ local function MainLoop()
       end
     end
   end
--- ==========================================================================
-  -- ОТРИСОВКА ИНТЕРФЕЙСА (ReaImGui)
-  -- ==========================================================================
-  RefreshRegions()
 
-  local visible, open = reaper.ImGui_Begin(ctx, 'Region Balance Manager', true)
-  if visible then
-    reaper.ImGui_Text(ctx, "Режим переходов:")
-    
-    if reaper.ImGui_RadioButton(ctx, "Моментальный (Instant)", transition_mode == 0) then
-      transition_mode = 0
-    end
-    reaper.ImGui_SameLine(ctx)
-    if reaper.ImGui_RadioButton(ctx, "Плавный (Gradual)", transition_mode == 1) then
-      transition_mode = 1
+  -- 3. Отрисовка интерфейса, если окно включено
+  if show_window then
+    RefreshRegions()
+
+    -- Настройка позиционирования у левой стенки при первом занесу / пустом проекте
+    if not first_run_docked then
+      reaper.ImGui_SetNextWindowPos(ctx, 20, 100, reaper.ImGui_Cond_FirstUseEver)
+      reaper.ImGui_SetNextWindowSize(ctx, 320, 450, reaper.ImGui_Cond_FirstUseEver)
+      first_run_docked = true
     end
 
-    if transition_mode == 1 then
-      reaper.ImGui_SetNextItemWidth(ctx, 150)
-      _, transition_time_ms = reaper.ImGui_SliderInt(ctx, "Кроссфейд (мс)", transition_time_ms, 50, 3000)
-    end
-
-    reaper.ImGui_Separator(ctx)
-    reaper.ImGui_Text(ctx, "Список регионов (Клик — Loop/Edit, 2-й клик — Save):")
-    reaper.ImGui_Spacing(ctx)
-
-    for _, reg in ipairs(regions) do
-      local r_id = GetRegionID(reg)
-      local is_editing = active_edit_region and (GetRegionID(active_edit_region) == r_id)
-      local has_snapshot = snapshots[r_id] ~= nil
-
-      -- Форматирование статуса и кнопки
-      local label = string.format("[%s] %s", reg.idx, reg.name)
-      if has_snapshot then
-        label = label .. " [Saved]"
-      else
-        label = label .. " [No Data]"
+    local visible, open = reaper.ImGui_Begin(ctx, 'Region Balance Manager', true)
+    if visible then
+      reaper.ImGui_Text(ctx, "Режим переходов:")
+      
+      if reaper.ImGui_RadioButton(ctx, "Моментальный (Instant)", transition_mode == 0) then
+        transition_mode = 0
+      end
+      reaper.ImGui_SameLine(ctx)
+      if reaper.ImGui_RadioButton(ctx, "Плавный (Gradual)", transition_mode == 1) then
+        transition_mode = 1
       end
 
-      -- Подсветка активного для редактирования региона
-      if is_editing then
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x228B22FF) -- Зеленый
+      if transition_mode == 1 then
+        reaper.ImGui_SetNextItemWidth(ctx, 150)
+        _, transition_time_ms = reaper.ImGui_SliderInt(ctx, "Кроссфейд (мс)", transition_time_ms, 50, 3000)
       end
 
-      if reaper.ImGui_Button(ctx, label, -1, 35) then
-        ToggleRegionEditMode(reg)
-      end
-
-      if is_editing then
-        reaper.ImGui_PopStyleColor(ctx)
-      end
-    end
-
-    if active_edit_region then
       reaper.ImGui_Separator(ctx)
-      reaper.ImGui_TextColored(ctx, 0x00FF00FF, "Режим редактирования: " .. active_edit_region.name)
-      if reaper.ImGui_Button(ctx, "Завершить и сохранить баланс", -1, 30) then
-        ToggleRegionEditMode(active_edit_region)
+      reaper.ImGui_Text(ctx, "Список регионов:")
+      reaper.ImGui_Spacing(ctx)
+
+      for _, reg in ipairs(regions) do
+        local r_id = GetRegionID(reg)
+        local is_editing = active_edit_region and (GetRegionID(active_edit_region) == r_id)
+        local has_snapshot = snapshots[r_id] ~= nil
+
+        local label = string.format("[%s] %s", reg.idx, reg.name)
+        if has_snapshot then
+          label = label .. " [Saved]"
+        else
+          label = label .. " [No Data]"
+        end
+
+        if is_editing then
+          reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x228B22FF)
+        end
+
+        if reaper.ImGui_Button(ctx, label, -1, 35) then
+          ToggleRegionEditMode(reg)
+        end
+
+        if is_editing then
+          reaper.ImGui_PopStyleColor(ctx)
+        end
       end
+
+      if active_edit_region then
+        reaper.ImGui_Separator(ctx)
+        reaper.ImGui_TextColored(ctx, 0x00FF00FF, "Редактирование: " .. active_edit_region.name)
+        if reaper.ImGui_Button(ctx, "Завершить и сохранить баланс", -1, 30) then
+          ToggleRegionEditMode(active_edit_region)
+        end
+      end
+
+      reaper.ImGui_End(ctx)
     end
 
-    reaper.ImGui_End(ctx)
+    if not open then
+      show_window = false -- Закрываем только окно интерфейса, фоновый движок продолжает работу
+    end
   end
 
-  if open then
-    reaper.defer(MainLoop)
-  end
+  reaper.defer(MainLoop)
 end
 
 -- ============================================================================
--- СТАРТ СКРИПТА
+-- СТАРТ И КОРРЕКТНОЕ ЗАВЕРШЕНИЕ
 -- ============================================================================
 LoadSnapshotsFromProject()
+reaper.atexit(function()
+  reaper.SetExtState("RegionBalanceManager", ext_key, "false", false)
+end)
+
 reaper.defer(MainLoop)
