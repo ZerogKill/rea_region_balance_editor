@@ -7,7 +7,7 @@
 ]]></description>
 		<dependency name="ReaImGui" version="0.9.0"/>
       </metadata>
-      <version name="1.1" author="ZerogKill" time="2026-10-30">
+      <version name="1.1beta" author="ZerogKill" time="2026-10-30">
         <source main="main">https://raw.githubusercontent.com/ZerogKill/rea_region_balance_editor/main/region_balance_manager.lua</source>
       </version>
     </reapack>
