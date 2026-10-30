@@ -11,7 +11,7 @@
       </metadata>
 
       <version name="1.0.0" author="ZerogKill" time="2026-10-30">
-        <source main="main">https://raw.githubusercontent.com/ZerogKill/rea_region_balance_editor/refs/heads/main/region_balance_manager.lua</source>
+        <source main="main">https://raw.githubusercontent.com/ZerogKill/rea_region_balance_editor/main/region_balance_manager.lua</source>
       </version>
 
     </reapack>
