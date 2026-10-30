@@ -1,5 +1,5 @@
 -- @description Region Balance Manager
--- @version 1.1
+-- @version 1.1beta
 -- @author Collaborative Build
 
 local reaper = reaper
@@ -44,7 +44,6 @@ EnsureStartupRegistration()
 -- ============================================================================
 local ext_key = "REGION_BALANCE_MANAGER_RUNNING"
 if reaper.GetExtState("RegionBalanceManager", ext_key) == "true" then
-  -- Если скрипт уже запущен в фоне, просто активируем показ окна
   reaper.SetExtState("RegionBalanceManager", "SHOW_WINDOW", "true", false)
   return
 end
@@ -224,13 +223,11 @@ end
 -- ============================================================================
 
 local function MainLoop()
-  -- 1. Проверка внешнего сигнала на открытие окна (если повторно запустили скрипт)
   if reaper.GetExtState("RegionBalanceManager", "SHOW_WINDOW") == "true" then
     show_window = true
     reaper.SetExtState("RegionBalanceManager", "SHOW_WINDOW", "false", false)
   end
 
-  -- 2. Фоновый движок воспроизведения работает всегда (даже при закрытом окне)
   ProcessFades()
 
   if not active_edit_region then
@@ -254,14 +251,13 @@ local function MainLoop()
     end
   end
 
-  -- 3. Отрисовка интерфейса, если окно включено
   if show_window then
     RefreshRegions()
 
-    -- Настройка позиционирования у левой стенки при первом занесу / пустом проекте
+    -- ИСПРАВЛЕНО: добавлены круглые скобки для вызова ImGui_Cond_FirstUseEver()
     if not first_run_docked then
-      reaper.ImGui_SetNextWindowPos(ctx, 20, 100, reaper.ImGui_Cond_FirstUseEver)
-      reaper.ImGui_SetNextWindowSize(ctx, 320, 450, reaper.ImGui_Cond_FirstUseEver)
+      reaper.ImGui_SetNextWindowPos(ctx, 20, 100, reaper.ImGui_Cond_FirstUseEver())
+      reaper.ImGui_SetNextWindowSize(ctx, 320, 450, reaper.ImGui_Cond_FirstUseEver())
       first_run_docked = true
     end
 
@@ -323,7 +319,7 @@ local function MainLoop()
     end
 
     if not open then
-      show_window = false -- Закрываем только окно интерфейса, фоновый движок продолжает работу
+      show_window = false
     end
   end
 
